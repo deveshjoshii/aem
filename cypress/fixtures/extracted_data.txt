@@ -1,0 +1,37 @@
+Character set: UTF-8
+Currency code: USD
+Current URL: https://apply.americanexpress.com/marriottbonvoymclp150/
+JavaScript Version: 1
+Marketing Cloud Visitor ID: 69251502227119408145696871390631701761
+Page name: US|Acq|LandingPage|AMEX Marriott New LP 3.0|URL 150
+Report Suites: amexpressenterpriseprod
+Server: apply.americanexpress.com
+Tracking Server: omns.americanexpress.com
+Visitor namespace: 1americanexpress
+prop3: en
+prop4: US
+prop10: prospect
+prop19: US|Acq
+prop24: US|Acq
+prop30: US|Acq
+prop31: US|Acq
+prop38: US|Acq
+prop48: D=gctrac
+prop49: Launch-OneCMS:v1.0-AM:2.23.0-VISID:5.0.0-DIL:NA-SS:Y-CSVisID:true-A1-msuite:true-PD:2024-06-26
+prop75: Launch
+eVar22: D=gctrac
+eVar27: US
+eVar45: prospect
+eVar60: 983
+eVar61: landscape
+eVar74: US|Acq|LandingPage|AMEX Marriott New LP 3.0|URL 150
+eVar75: 69251502227119408145696871390631701761
+eVar82: 0.9131294521262933_1728051480150
+eVar94: D=agent-id
+eVar122: 2024-10-04
+eVar140: UCM: en-US| euLocale: en-US|
+Hierarchy 1: US|Acq
+cm.ssf: 1
+gvs: 1
+omn.lob: Acq
+visitorCheck: VisitorAPI Present
