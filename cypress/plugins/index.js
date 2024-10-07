@@ -1,16 +1,16 @@
 const fs = require('fs');
+const path = require('path');
 
 module.exports = (on, config) => {
-  on('task', {
-    appendToFile({ filePath, content }) {
-      return new Promise((resolve, reject) => {
-        fs.appendFile(filePath, content, (err) => {
-          if (err) {
-            return reject(err);
-          }
-          resolve(true);
-        });
-      });
-    }
-  });
+    on('task', {
+        writeToCSV(data) {
+            const filePath = path.join(__dirname, 'output.csv'); // Set your desired file path
+            return new Promise((resolve, reject) => {
+                fs.appendFile(filePath, data, (err) => {
+                    if (err) reject(err);
+                    else resolve(null);
+                });
+            });
+        }
+    });
 };
