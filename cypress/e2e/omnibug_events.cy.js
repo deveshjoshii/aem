@@ -22,7 +22,7 @@ describe('Intercept request, perform actions, and process values', () => {
       const aemData = Papa.parse(fileContent, { header: true }).data;
 
       // Process each row asynchronously
-      cy.wrap(aemData).each((row) => {
+      cy.wrap(aemData).each((row, index) => {
         const urlToVisit = row.Url; // Assuming the URL is in the 'Url' column
         const action = row.Action; // Assuming the action is in the 'Action' column
 
@@ -38,7 +38,9 @@ describe('Intercept request, perform actions, and process values', () => {
 
               // Wait for the intercepted request after visiting the URL
               return cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
-                processInterceptedRequest(interception, row, aemData, requestData);
+                const status = processInterceptedRequest(interception, row, requestData);
+                row.Status = status; // Add the status to the row
+                writeBackToCSV(aemDataFilePath, aemData); // Write updated data to CSV
               });
             } else if (action && action.includes('|')) {
               const [actionType, objectLocator] = action.split('|');
@@ -50,7 +52,7 @@ describe('Intercept request, perform actions, and process values', () => {
                   .click()
                   .then(() => {
                     cy.log(`Clicked on element: ${objectLocator}`);
-                    cy.wait(1000); // Wait for any actions post click
+                    cy.wait(1000); // Wait for any actions post-click
 
                     // Intercept the request after the action
                     cy.intercept({
@@ -61,7 +63,9 @@ describe('Intercept request, perform actions, and process values', () => {
 
                     // Wait for the intercepted request after the action
                     return cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
-                      processInterceptedRequest(interception, row, aemData, requestData);
+                      const status = processInterceptedRequest(interception, row, requestData);
+                      row.Status = status; // Add the status to the row
+                      writeBackToCSV(aemDataFilePath, aemData); // Write updated data to CSV
                     });
                   });
               } else if (actionType === 'type') {
@@ -73,7 +77,9 @@ describe('Intercept request, perform actions, and process values', () => {
                     cy.intercept('GET', '**/b/ss/**v5**').as('specificRequest');
 
                     return cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
-                      processInterceptedRequest(interception, row, aemData, requestData);
+                      const status = processInterceptedRequest(interception, row, requestData);
+                      row.Status = status; // Add the status to the row
+                      writeBackToCSV(aemDataFilePath, aemData); // Write updated data to CSV
                     });
                   });
               }
@@ -88,7 +94,7 @@ describe('Intercept request, perform actions, and process values', () => {
 });
 
 // Helper function to process intercepted request
-function processInterceptedRequest(interception, row, aemData, requestData) {
+function processInterceptedRequest(interception, row, requestData) {
   const interceptedUrl = interception.request.url;
   const queryString = interceptedUrl.split('?')[1] || '';
   const decodedQuery = decodeURIComponent(queryString);
@@ -100,14 +106,10 @@ function processInterceptedRequest(interception, row, aemData, requestData) {
     extractedData[key] = value || '';
   });
 
-  // Log extracted data : commenting for some time 
-  // cy.log('Extracted Data: ' + JSON.stringify(extractedData));
-
   // Log extracted data for debugging
-  cy.log('Extracted Parameters: ' + JSON.stringify(extractedData)); // Print only extracted parameters
+  cy.log('Extracted Parameters: ' + JSON.stringify(extractedData));
 
-
-  // Generate a unique request ID using timestamp and random number
+  // Generate a unique request ID
   const requestId = `request_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
   // Store data in requestData dictionary
@@ -120,9 +122,6 @@ function processInterceptedRequest(interception, row, aemData, requestData) {
     params: extractedData,
   };
 
-  // Log requestData after insertion
-  cy.log('Request Data after insertion: ' + JSON.stringify(requestData));
-
   // Prepare final data for verification
   const finalData = prepareFinalData(extractedData);
 
@@ -131,17 +130,21 @@ function processInterceptedRequest(interception, row, aemData, requestData) {
   const expectedValue = row.Value; // Assuming the expected value is in the 'Value' column
 
   // Trim and lowercase both values for accurate comparison
-  const actualValue = finalData[fieldName]?.trim().toLowerCase();
+  const actualValue = finalData[fieldName]?.trim().toLowerCase() || '';
   const expectedValueTrimmed = expectedValue.trim().toLowerCase();
 
   // Set the status based on comparison
-  row.Status = (actualValue === expectedValueTrimmed) ? 'Pass' : 'Fail';
+  const status = (actualValue === expectedValueTrimmed) ? 'Pass' : 'Fail';
+  // Instead of modifying the row, store results in requestData
+  requestData[requestId].status = status;
 
   // Log the status for debugging
-  cy.log(`Status for URL: ${row.Url} - Expected: "${expectedValueTrimmed}", Actual: "${actualValue}", Status: ${row.Status}`);
+  cy.log(`Status for URL: ${row.Url} - Expected: "${expectedValueTrimmed}", Actual: "${actualValue}", Status: ${status}`);
 
   // Log requestData after comparison
   cy.log('Request Data after comparison: ' + JSON.stringify(requestData));
+
+  return status; // Return status for the CSV
 }
 
 // Helper function to map extracted data
@@ -161,4 +164,10 @@ function prepareFinalData(extractedData) {
   });
 
   return finalData;
+}
+
+// Function to write updated data back to CSV
+function writeBackToCSV(filePath, data) {
+  const csv = Papa.unparse(data); // Convert data back to CSV format
+  cy.writeFile(filePath, csv); // Write to the original CSV file
 }
