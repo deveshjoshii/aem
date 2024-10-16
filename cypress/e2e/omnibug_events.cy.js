@@ -62,7 +62,7 @@ describe('Intercept request, perform actions, and process values', () => {
 
 
                     // Assert that the menu item is visible before clicking
-                    cy.get('#applyForCard-menu')
+                    cy.get(objectLocator)
                       .should('be.visible')
                       .click()
                       .then(() => {
