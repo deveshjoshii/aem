@@ -51,7 +51,15 @@ describe('Intercept request, perform actions, and process values', () => {
                     cy.wait(1000); // Wait for any actions post-click
 
                     // Intercept the request after the action
-                    cy.intercept('GET', '**/b/ss/**').as('specificRequestAfterClick');
+                    // cy.intercept('GET', '**/b/ss/**').as('specificRequestAfterClick');
+                    cy.intercept('GET', '**/b/ss/**', (req) => {
+                      // Check if the request query parameters contain 'v5'
+                      if (req.url.includes('v5')) {
+                          req.alias = 'specificRequestAfterClick';
+                      }
+                    });
+
+
 
                     // Assert that the menu item is visible before clicking
                     cy.get('#applyForCard-menu')
