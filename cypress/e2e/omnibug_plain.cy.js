@@ -1,8 +1,9 @@
-// Import necessary libraries
 const fs = require('fs');
 const Papa = require('papaparse');
 
 describe('Intercept request, perform actions, and process values', () => {
+  let requestData = {}; // Dictionary to store all request data
+
   beforeEach(() => {
     // Catch uncaught exceptions to prevent test failure
     Cypress.on('uncaught:exception', (err) => {
@@ -14,64 +15,65 @@ describe('Intercept request, perform actions, and process values', () => {
   });
 
   it('Processes multiple URLs from aemdata.csv, performs actions, and checks values', () => {
-    const aemDataFilePath = 'cypress/fixtures/aemdata.csv'; // AEM data CSV file path
-    const outputFilePath = 'cypress/fixtures/output.csv'; // Output CSV file path
+    const aemDataFilePath = 'cypress/fixtures/urls.csv'; // AEM data CSV file path
 
     // Read AEM data to get the URLs
     cy.readFile(aemDataFilePath).then((fileContent) => {
       const aemData = Papa.parse(fileContent, { header: true }).data;
 
       // Process each row asynchronously
-      cy.wrap(aemData).each((row) => {
+      cy.wrap(aemData).each((row, index) => {
         const urlToVisit = row.Url; // Assuming the URL is in the 'Url' column
         const action = row.Action; // Assuming the action is in the 'Action' column
 
         // Check if the URL is not empty before visiting
         if (urlToVisit) {
+          // Intercept requests to store later
+          cy.intercept('POST', '**/j/collect**').as('specificRequest');
+          // cy.intercept('POST', '**/g/collect**').as('specificRequest');
+
           // Visit the page
           cy.visit(urlToVisit).then(() => {
-            // If action is null or empty
-            if (!action) {
-              cy.log(`No action provided. Fetching request for URL: ${urlToVisit}`);
+            // Wait for the intercepted request
+            cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
+              processInterceptedRequest(interception, row, requestData);
+            });
 
-              // Intercept the request after the URL visit
-              cy.intercept('GET', '**/b/ss/**').as('specificRequest'); // Adjust the intercept pattern as needed
-
-              // Wait for the intercepted request after visiting the URL
-              return cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
-                processInterceptedRequest(interception, row, aemData, aemDataFilePath, outputFilePath);
-              });
-            } else if (action && action.includes('|')) {
+            if (action && action.includes('|')) {
               const [actionType, objectLocator] = action.split('|');
               const valueToType = row.Value; // Assuming there's a 'Value' column for typing
 
               if (actionType === 'click') {
                 cy.get(objectLocator)
                   .should('be.visible')
-                  // .should('be.enabled')
                   .click()
                   .then(() => {
                     cy.log(`Clicked on element: ${objectLocator}`);
-                    // Wait for the URL to change after the click
-                    cy.wait(1000)
-                    cy.get(objectLocator).click()
-                    
+                    cy.wait(1000); // Wait for any actions post-click
 
-                    // Intercept the request after the action has been performed
-                    // cy.intercept('GET', '**/b/ss/**v5**').as('specificRequest');
-                    cy.intercept({
-                      method: 'GET',
-                      url: '**/b/ss/**', // Match any URL that contains /b/ss
-                      query: {
-                        v5: '**', // Ensure v5 is present as a query parameter
-                      },
-                    }).as('specificRequest');
-                    
-
-                    // Wait for the intercepted request after the action
-                    return cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
-                      processInterceptedRequest(interception, row, aemData, aemDataFilePath, outputFilePath);
+                    // Intercept the request after the action
+                    // cy.intercept('GET', '**/b/ss/**').as('specificRequestAfterClick');
+                    cy.intercept('GET', '**/j/collect**', (req) => {
+                      // Check if the request query parameters contain 'v5'
+                      if (req.url.includes('v5')) {
+                          req.alias = 'specificRequestAfterClick';
+                      }
                     });
+
+
+
+                    // Assert that the menu item is visible before clicking
+                    cy.get(objectLocator)
+                      .should('be.visible')
+                      .click()
+                      .then(() => {
+                        // cy.url().should('include', '/hil-lto-q3/page/30#applyForCard'); // Adjust based on your expected URL
+
+                        // Wait for the intercepted request after the action
+                        cy.wait('@specificRequestAfterClick', { timeout: 10000 }).then((interception) => {
+                          processInterceptedRequest(interception, row, requestData);
+                        });
+                      });
                   });
               } else if (actionType === 'type') {
                 cy.get(objectLocator)
@@ -79,75 +81,104 @@ describe('Intercept request, perform actions, and process values', () => {
                   .type(valueToType)
                   .then(() => {
                     cy.log(`Typed "${valueToType}" into element: ${objectLocator}`);
-                    // Intercept the request after the action has been performed
-                    cy.intercept('GET', '**/b/ss/**v5**').as('specificRequest');
-
-                    // Wait for the intercepted request after the action
-                    return cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
-                      processInterceptedRequest(interception, row, aemData, aemDataFilePath, outputFilePath);
+                    cy.intercept('GET', '**/j/collect**').as('specificRequestAfterType');
+                    cy.wait(1000);
+                    // Wait for the intercepted request after typing
+                    cy.wait('@specificRequestAfterType', { timeout: 10000 }).then((interception) => {
+                      processInterceptedRequest(interception, row, requestData);
                     });
                   });
               }
             }
           });
         } else {
-          // Log a warning if the URL is empty
           cy.log(`Warning: Empty URL found in row: ${JSON.stringify(row)}`);
         }
+      }).then(() => {
+        // Final assertions after all requests are captured
+        assertCapturedData(aemData, requestData, aemDataFilePath);
       });
     });
   });
 });
 
 // Helper function to process intercepted request
-function processInterceptedRequest(interception, row, aemData, aemDataFilePath, outputFilePath) {
+function processInterceptedRequest(interception, row, requestData) {
   const interceptedUrl = interception.request.url;
   const queryString = interceptedUrl.split('?')[1] || '';
   const decodedQuery = decodeURIComponent(queryString);
   const keyValuePairs = decodedQuery.split('&');
 
   const extractedData = {};
-  keyValuePairs.forEach(pair => {
+  keyValuePairs.forEach((pair) => {
     const [key, value] = pair.split('=');
     extractedData[key] = value || '';
   });
 
-  // Log and write extracted data to output CSV
-  cy.task('writeToCSV', createCSVRow(extractedData), { filePath: outputFilePath });
+  // Log extracted data for debugging
+  cy.log('Extracted Parameters: ' + JSON.stringify(extractedData));
 
-  // Prepare final data for verification
-  const finalData = prepareFinalData(extractedData, row);
+  // Generate a unique request ID
+  const requestId = `request_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
-  // Compare values with AEM data
-  const fieldName = row.Fieldname; // Assuming the field name is in the 'Fieldname' column
-  const expectedValue = row.Value; // Assuming the expected value is in the 'Value' column
-  row.Status = (finalData[fieldName]?.trim().toLowerCase() === expectedValue.trim().toLowerCase()) ? 'Pass' : 'Fail';
+  // Store data in requestData dictionary
+  requestData[requestId] = {
+    url: interceptedUrl,
+    status: interception.response.statusCode,
+    headers: interception.response.headers,
+    request_id: requestId,
+    timestamp: interception.timestamp,
+    params: extractedData,
+  };
 
-  // Write updated AEM data back to the CSV file
-  cy.writeFile(aemDataFilePath, Papa.unparse(aemData));
+  return extractedData; // Return extracted data for further processing if needed
 }
 
-// Helper functions
-function createCSVRow(data) {
-  const outputHeader = Object.keys(data).join(',') + '\n';
-  const outputRow = Object.values(data).join(',') + '\n';
-  return outputHeader + outputRow;
-}
+// Function to assert captured data and write results back to CSV
+function assertCapturedData(aemData, requestData, filePath) {
+   // Iterate over each row in aemData to check the status of captured requests
+   aemData.forEach(row => {
+    const fieldName = row.Fieldname; // Field name from CSV
+    const expectedValue = row.Value; // Expected value from CSV
+    const assertURL = row.AssertURL === 'true'; // Check if URL assertion is required
 
-function prepareFinalData(extractedData, row) {
-  const headerKeys = [
-    'ce', 'cc', 'g', 'v', 'mid', 'pageName', 'rs', 'server', 't', 'ns',
-    'c3', 'c4', 'c10', 'c19', 'c24', 'c30', 'c31', 'c38', 'c46', 'c48',
-    'c49', 'c56', 'c57', 'c58', 'c75', 'v22', 'v5', 'v27', 'v41', 'v45',
-    'v60', 'v61', 'v74', 'v75', 'v94', 'v122', 'v140', 'h1', 'ssf', 'lob',
-    'visitorCheck', 'bh', 't', 'bw', 'cl', 'c', 'j', 'mcorgid', 'pf',
-    's', 'prop22'
-  ];
+    // Default to "Fail"
+    let status = 'Fail';
+    let actualValue = ''; // Initialize to store the actual value
 
-  const finalData = {};
-  headerKeys.forEach(key => {
-    finalData[key] = extractedData[key] || '';
+    // Iterate through the captured requests in the requestData
+    Object.values(requestData).forEach(req => {
+      // Check if the fieldName from the CSV exists in the captured request's params
+      if (req.params[fieldName]) {
+        actualValue = req.params[fieldName]?.trim().toLowerCase() || ''; // Trim and get the actual value
+        const expectedValueTrimmed = expectedValue.trim().toLowerCase(); // Trim the expected value from CSV
+
+        // Log the actual and expected values for visibility
+        cy.log(`Field: ${fieldName}, Expected: "${expectedValueTrimmed}", Actual: "${actualValue}"`);
+
+        // Compare the actual and expected values
+        if (actualValue === expectedValueTrimmed) {
+          status = 'Pass'; // Mark as Pass if the values match
+        }
+      }
+    });
+
+    // Log a warning if the fieldName from the CSV is not found in any request params
+    if (!actualValue) {
+      cy.log(`Warning: Field "${fieldName}" not found in any captured requests.`);
+    }
+
+    // Set the status in the row based on the comparison result
+    row.Status = status;
+    cy.log(`Field: ${fieldName}, Status: ${status}`);
   });
 
-  return finalData;
+  // Write updated data back to CSV
+  writeBackToCSV(filePath, aemData);
+}
+
+// Function to write updated data back to CSV
+function writeBackToCSV(filePath, data) {
+  const csv = Papa.unparse(data); // Convert data back to CSV format
+  cy.writeFile(filePath, csv); // Write to the original CSV file
 }
