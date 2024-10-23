@@ -48,10 +48,10 @@ describe('Intercept request, perform actions, and process values', () => {
                   cy.log(`Clicked on element: ${objectLocator}`);
                   cy.wait(1000); // Wait for any actions post-click
 
-                  // Intercept the latest request after the action is performed
-                  cy.intercept('POST', '**https://analytics.google.com/g/collect**').as('specificRequestAfterClick');
-                  cy.wait('@specificRequestAfterClick', { timeout: 10000 }).then((interception) => {
-                    storeRequestData(interception, row, requestData);
+                  // Intercept the request after the action and apply 'ep.Action' filter
+                  cy.intercept('POST', '**https://analytics.google.com/g/collect**').as('requestAfterClick');
+                  cy.wait('@requestAfterClick', { timeout: 10000 }).then((interception) => {
+                    storeRequestData(interception, row, requestData, true); // Pass true to check 'ep.Action' after click
                   });
                 });
             } else if (actionType === 'type') {
@@ -62,18 +62,18 @@ describe('Intercept request, perform actions, and process values', () => {
                   cy.log(`Typed "${valueToType}" into element: ${objectLocator}`);
                   cy.wait(1000);
 
-                  // Intercept the latest request after the action is performed
-                  cy.intercept('POST', '**https://analytics.google.com/g/collect**').as('specificRequestAfterType');
-                  cy.wait('@specificRequestAfterType', { timeout: 10000 }).then((interception) => {
-                    storeRequestData(interception, row, requestData);
+                  // Intercept the request after the action and apply 'ep.Action' filter
+                  cy.intercept('POST', '**https://analytics.google.com/g/collect**').as('requestAfterType');
+                  cy.wait('@requestAfterType', { timeout: 10000 }).then((interception) => {
+                    storeRequestData(interception, row, requestData, true); // Pass true to check 'ep.Action' after typing
                   });
                 });
             }
           } else {
-            // If there's no action, intercept the request normally
-            cy.intercept('POST', '**https://analytics.google.com/g/collect**').as('specificRequest');
-            cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
-              storeRequestData(interception, row, requestData);
+            // If no action, intercept the request without checking 'ep.Action'
+            cy.intercept('POST', '**https://analytics.google.com/g/collect**').as('requestWithoutAction');
+            cy.wait('@requestWithoutAction', { timeout: 10000 }).then((interception) => {
+              storeRequestData(interception, row, requestData, false); // Pass false to skip 'ep.Action' check
             });
           }
         });
@@ -86,7 +86,7 @@ describe('Intercept request, perform actions, and process values', () => {
 });
 
 // Helper function to store intercepted request data
-function storeRequestData(interception, row, requestData) {
+function storeRequestData(interception, row, requestData, checkForEpAction = false) {
   const interceptedUrl = interception.request.url;
   const queryString = interceptedUrl.split('?')[1] || '';
   const decodedQuery = decodeURIComponent(queryString);
@@ -99,6 +99,12 @@ function storeRequestData(interception, row, requestData) {
   });
 
   cy.log('Extracted Parameters: ' + JSON.stringify(extractedData));
+
+  // Only filter by 'ep.Action' if specified
+  if (checkForEpAction && !extractedData['ep.Action']) {
+    cy.log('Skipping this request, as it does not contain ep.Action.');
+    return; // Skip requests without 'ep.Action' after actions
+  }
 
   const requestId = `request_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
