@@ -1,8 +1,8 @@
 const { defineConfig } = require('cypress');
 const { google } = require('googleapis');
 const { Pool } = require('pg'); // PostgreSQL package
+const moment = require('moment-timezone'); // For handling timezones
 const fs = require('fs');
-const moment = require('moment-timezone');
 
 // Load database credentials from the environment variable DB_CONNECTION_SECRET
 let dbConfig;
@@ -54,7 +54,7 @@ async function readGoogleSheet() {
   const sheets = google.sheets({ version: 'v4', auth: authClient });
 
   const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ'; // Replace with your actual sheet ID
-  const sheetRange = 'Sheet2!A:F'; // Range in the sheet
+  const sheetRange = 'Sheet1!A:F'; // Range in the sheet
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
@@ -86,7 +86,7 @@ async function writeGoogleSheet({ spreadsheetId, range, values }) {
   return 'Update successful';
 }
 
-// Function to insert data into the PostgreSQL database and update status
+// Function to insert data into the PostgreSQL database
 async function insertDataIntoDatabase(sheetData) {
   try {
     // Ensure the database table exists
@@ -152,7 +152,7 @@ module.exports = defineConfig({
           return await writeGoogleSheet({ spreadsheetId, range, values });
         },
 
-        async updateDatabase() {
+        async updateSheetAndDatabase() {
           // Step 1: Read data from Google Sheet
           const sheetData = await readGoogleSheet();
 
