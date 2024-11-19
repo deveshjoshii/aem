@@ -166,6 +166,16 @@ module.exports = defineConfig({
 
           return 'Sheet and database updated successfully';
         },
+
+        async updateDatabase() {
+          // Step 1: Read data from Google Sheet
+          const sheetData = await readGoogleSheet();
+
+          // Step 2: Insert data into the database (no sheet updates here)
+          await insertDataIntoDatabase(sheetData);
+
+          return 'Database updated successfully';
+        },
       });
     },
   },
