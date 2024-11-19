@@ -115,14 +115,15 @@ function processInterceptedRequest(interception, row, requestData) {
   return extractedData;
 }
 
-// Function to assert captured data
+// Function to assert captured data and update Google Sheets status
 function assertCapturedData(googleSheetData, requestData) {
-  googleSheetData.forEach((row) => {
+  googleSheetData.forEach((row, rowIndex) => {
     const fieldName = row[2]; // Assuming 'Fieldname' is in the third column
     const expectedValue = row[3]; // Assuming 'Value' is in the fourth column
     let status = 'Fail';
     let actualValue = '';
 
+    // Iterate through intercepted request data
     Object.values(requestData).forEach((req) => {
       if (req.params[fieldName]) {
         actualValue = req.params[fieldName]?.trim().toLowerCase() || '';
@@ -140,7 +141,18 @@ function assertCapturedData(googleSheetData, requestData) {
       cy.log(`Warning: Field "${fieldName}" not found in any captured requests.`);
     }
 
-    row[5] = status; // Assuming 'Status' is in the sixth column
+    // Log status before updating
     cy.log(`Field: ${fieldName}, Status: ${status}`);
+
+    // Update the status in the Google Sheet
+    const sheetRange = `Sheet1!F${rowIndex + 1}`; // Set the range for the status column update (column F)
+    try {
+      cy.task('writeGoogleSheet', { range: sheetRange, values: [[status]] })
+        .then(result => {
+          cy.log(`Update result for row ${rowIndex + 1}: ${result}`);
+        });
+    } catch (error) {
+      cy.log(`Failed to update status for row ${rowIndex + 1}: ${error.message}`);
+    }
   });
 }
