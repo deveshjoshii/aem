@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "csv-writer": "^1.6.0",
+    "googleapis": "^144.0.0",
     "papaparse": "^5.4.1"
   }
 }
