@@ -3,6 +3,15 @@ const Papa = require('papaparse');
 
 describe('Intercept request, perform actions, and process values', () => {
   let requestData = {}; // Dictionary to store all request data
+  let googleSheetData = []; // Array to store data fetched from Google Sheets
+
+  before(() => {
+    // Fetch data from Google Sheets before running tests
+    cy.task('readGoogleSheet', { range: 'Sheet1!A:F' }).then((rows) => {
+      googleSheetData = rows; // Store the data from Google Sheets
+      cy.log('Fetched data from Google Sheets:', googleSheetData);
+    });
+  });
 
   beforeEach(() => {
     // Catch uncaught exceptions to prevent test failure
@@ -14,81 +23,64 @@ describe('Intercept request, perform actions, and process values', () => {
     });
   });
 
-  it('Processes multiple URLs from aemdata.csv, performs actions, and checks values', () => {
-    const aemDataFilePath = 'cypress/fixtures/aemdata.csv'; // AEM data CSV file path
+  it('Processes data from Google Sheets, performs actions, and checks values', () => {
+    if (googleSheetData.length === 0) {
+      cy.log('No valid data to process.');
+      return;
+    }
 
-    // Read AEM data to get the URLs
-    cy.readFile(aemDataFilePath).then((fileContent) => {
-      const aemData = Papa.parse(fileContent, { header: true }).data;
+    // Process each row asynchronously
+    cy.wrap(googleSheetData.slice(1)).each((row, index) => {
+      const urlToVisit = row[1]; // URL is assumed to be in the second column
+      const action = row[4]; // Assuming 'Action' is in the fifth column
 
-      // Filter rows with a non-empty URL field
-      const filteredData = aemData.filter((row) => row.Url && row.Url.trim() !== '');
+      // Intercept requests to store later
+      cy.intercept('GET', '**/b/ss/**').as('specificRequest');
 
-      if (filteredData.length === 0) {
-        cy.log('No valid URLs found in the CSV file. Test aborted.');
-        return; // Stop the test if no valid rows are found
-      }
-
-      // Process each filtered row asynchronously
-      cy.wrap(filteredData).each((row, index) => {
-        const urlToVisit = row.Url; // Assuming the URL is in the 'Url' column
-        const action = row.Action; // Assuming the action is in the 'Action' column
-
-        // Intercept requests to store later
-        cy.intercept('GET', '**/b/ss/**').as('specificRequest');
-
-        // Visit the page
-        cy.visit(urlToVisit).then(() => {
-          // Wait for the intercepted request
-          cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
-            processInterceptedRequest(interception, row, requestData);
-          });
-
-          if (action && action.includes('|')) {
-            const [actionType, objectLocator] = action.split('|');
-            const valueToType = row.Value; // Assuming there's a 'Value' column for typing
-
-            if (actionType === 'click') {
-              cy.get(objectLocator)
-                .should('be.visible')
-                .click()
-                .then(() => {
-                  cy.log(`Clicked on element: ${objectLocator}`);
-                  cy.wait(1000); // Wait for any actions post-click
-
-                  // Intercept the request after the action
-                  cy.intercept('GET', '**/b/ss/**', (req) => {
-                    if (req.url.includes('v5')) {
-                      req.alias = 'specificRequestAfterClick';
-                    }
-                  });
-
-                  cy.get(objectLocator)
-                    .should('be.visible')
-                    .click()
-                    .then(() => {
-                      cy.wait('@specificRequestAfterClick', { timeout: 10000 }).then((interception) => {
-                        processInterceptedRequest(interception, row, requestData);
-                      });
-                    });
-                });
-            } else if (actionType === 'type') {
-              cy.get(objectLocator)
-                .should('be.visible')
-                .type(valueToType)
-                .then(() => {
-                  cy.log(`Typed "${valueToType}" into element: ${objectLocator}`);
-                  cy.intercept('GET', '**/b/ss/**').as('specificRequestAfterType');
-                  cy.wait(1000);
-                  cy.wait('@specificRequestAfterType', { timeout: 10000 }).then((interception) => {
-                    processInterceptedRequest(interception, row, requestData);
-                  });
-                });
-            }
-          }
+      // Visit the page
+      cy.visit(urlToVisit).then(() => {
+        // Wait for the intercepted request
+        cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
+          processInterceptedRequest(interception, row, requestData);
         });
-      }).then(() => {
-        assertCapturedData(filteredData, requestData, aemDataFilePath);
+
+        if (action && action.includes('|')) {
+          const [actionType, objectLocator] = action.split('|');
+          const valueToType = row[3]; // Assuming 'Value' is in the fourth column
+
+          if (actionType === 'click') {
+            cy.get(objectLocator)
+              .should('be.visible')
+              .click()
+              .then(() => {
+                cy.log(`Clicked on element: ${objectLocator}`);
+                cy.wait(1000);
+
+                // Intercept the request after the action
+                cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
+                  processInterceptedRequest(interception, row, requestData);
+                });
+              });
+          } else if (actionType === 'type') {
+            cy.get(objectLocator)
+              .should('be.visible')
+              .type(valueToType)
+              .then(() => {
+                cy.log(`Typed "${valueToType}" into element: ${objectLocator}`);
+                cy.wait(1000);
+
+                // Intercept the request after the action
+                cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
+                  processInterceptedRequest(interception, row, requestData);
+                });
+              });
+          }
+        }
+      });
+    }).then(() => {
+      assertCapturedData(googleSheetData, requestData);
+      cy.task('updateDatabase', requestData).then((result) => {
+        cy.log('Database updated successfully: ', result);
       });
     });
   });
@@ -123,17 +115,15 @@ function processInterceptedRequest(interception, row, requestData) {
   return extractedData;
 }
 
-// Function to assert captured data and write results back to CSV
-function assertCapturedData(filteredData, requestData, filePath) {
-  filteredData.forEach(row => {
-    const fieldName = row.Fieldname;
-    const expectedValue = row.Value;
-    const assertURL = row.AssertURL === 'true';
-
+// Function to assert captured data
+function assertCapturedData(googleSheetData, requestData) {
+  googleSheetData.forEach((row) => {
+    const fieldName = row[2]; // Assuming 'Fieldname' is in the third column
+    const expectedValue = row[3]; // Assuming 'Value' is in the fourth column
     let status = 'Fail';
     let actualValue = '';
 
-    Object.values(requestData).forEach(req => {
+    Object.values(requestData).forEach((req) => {
       if (req.params[fieldName]) {
         actualValue = req.params[fieldName]?.trim().toLowerCase() || '';
         const expectedValueTrimmed = expectedValue.trim().toLowerCase();
@@ -150,14 +140,7 @@ function assertCapturedData(filteredData, requestData, filePath) {
       cy.log(`Warning: Field "${fieldName}" not found in any captured requests.`);
     }
 
-    row.Status = status;
+    row[5] = status; // Assuming 'Status' is in the sixth column
     cy.log(`Field: ${fieldName}, Status: ${status}`);
   });
-
-  writeBackToCSV(filePath, filteredData);
-}
-
-function writeBackToCSV(filePath, data) {
-  const csv = Papa.unparse(data);
-  cy.writeFile(filePath, csv);
 }
