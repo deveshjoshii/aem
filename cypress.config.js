@@ -86,7 +86,7 @@ async function writeGoogleSheet({ spreadsheetId, range, values }) {
   return 'Update successful';
 }
 
-// Function to insert data into the PostgreSQL database
+// Function to insert data into the PostgreSQL database and update status
 async function insertDataIntoDatabase(sheetData) {
   try {
     // Ensure the database table exists
