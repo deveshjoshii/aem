@@ -101,7 +101,7 @@ function processInterceptedRequest(interception, row, requestData) {
 
 // Function to validate captured data and update Google Sheets
 function validateAndUpdateGoogleSheet(googleSheetData, requestData) {
-  googleSheetData.forEach((row, rowIndex) => {
+  googleSheetData.slice(1).forEach((row, rowIndex) => {
     const fieldName = row[2]; // Field name (Column C)
     const expectedValue = row[3]; // Expected value (Column D)
     let status = 'Fail';
