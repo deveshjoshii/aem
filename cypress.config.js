@@ -152,7 +152,7 @@ module.exports = defineConfig({
           return await writeGoogleSheet({ spreadsheetId, range, values });
         },
 
-        async updateSheetAndDatabase() {
+        async updateDatabase() {
           // Step 1: Read data from Google Sheet
           const sheetData = await readGoogleSheet();
 
