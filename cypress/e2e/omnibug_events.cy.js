@@ -102,6 +102,7 @@ function processInterceptedRequest(interception, row, requestData) {
 // Function to validate captured data and update Google Sheets
 function validateAndUpdateGoogleSheet(googleSheetData, requestData) {
   googleSheetData.slice(1).forEach((row, rowIndex) => {
+    const actualRowIndex = rowIndex + 2; // Account for skipping the header row (starts from the second row)
     const fieldName = row[2]; // Field name (Column C)
     const expectedValue = row[3]; // Expected value (Column D)
     let status = 'Fail';
@@ -115,9 +116,9 @@ function validateAndUpdateGoogleSheet(googleSheetData, requestData) {
     });
 
     // Update status in Google Sheets
-    const sheetRange = `Sheet2!F${rowIndex + 1}`;
+    const sheetRange = `Sheet2!F${actualRowIndex}`; // Update range for the status column
     cy.task('writeGoogleSheet', { range: sheetRange, values: [[status]] }).then((result) => {
-      cy.log(`Updated row ${rowIndex + 1} with status: ${status}`);
+      cy.log(`Updated row ${actualRowIndex} with status: ${status}`);
     });
   });
 
