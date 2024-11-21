@@ -1,129 +1,177 @@
-const fs = require('fs');
-const Papa = require('papaparse');
-
-describe('Intercept requests, perform actions, and validate data', () => {
-  let requestData = {}; // Dictionary to store intercepted request data
+describe('Intercept request, perform actions, and process values', () => {
+  let requestData = {}; // Dictionary to store all intercepted request data
   let googleSheetData = []; // Array to store data fetched from Google Sheets
 
   before(() => {
-    // Fetch data from Google Sheets before running the tests
+    // Fetch data from Google Sheets before running tests
     cy.task('readGoogleSheet', { range: 'Sheet2!A:F' }).then((rows) => {
-      googleSheetData = rows || [];
+      googleSheetData = rows; // Store the data from Google Sheets
       cy.log('Fetched data from Google Sheets:', googleSheetData);
     });
   });
 
   beforeEach(() => {
-    // Handle uncaught exceptions
+    // Catch uncaught exceptions to prevent test failure
     Cypress.on('uncaught:exception', (err) => {
       if (err.message.includes('digitalData.event is undefined')) {
         cy.log('Caught uncaught exception: ' + err.message);
-        return false; // Prevent test failure
+        return false; // Prevents Cypress from failing the test
       }
     });
   });
 
-  it('Processes data from Google Sheets and validates requests', () => {
+  it('Processes data from Google Sheets, performs actions, and checks values', () => {
     if (googleSheetData.length === 0) {
-      cy.log('No data to process.');
+      cy.log('No valid data to process.');
       return;
     }
 
-    // Process each row in the Google Sheet
-    cy.wrap(googleSheetData.slice(1)).each((row, rowIndex) => {
-      const urlToVisit = row[1]; // URL (Column B)
-      const fieldName = row[2]; // Field name (Column C)
-      const expectedValue = row[3]; // Expected value (Column D)
-      const action = row[4]; // Action (Column E)
+    // Process each row asynchronously
+    cy.wrap(googleSheetData.slice(1)).each((row, index) => {
+      const urlToVisit = row[1]; // URL is assumed to be in the second column
+      const fieldName = row[2];  // Assuming 'Fieldname' is in the third column
+      const value = row[3];      // Assuming 'Value' is in the fourth column
+      const action = row[4];     // Assuming 'Action' is in the fifth column
+      const status = row[5];     // Assuming 'Status' is in the sixth column
 
-      // Intercept requests
-      cy.intercept('GET', '**/b/ss/**').as('specificRequest');
-
-      // Visit the specified URL
+      // Visit the page
       cy.visit(urlToVisit).then(() => {
-        // Wait for the first request
-        cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
-          if (interception) {
-            processInterceptedRequest(interception, row, requestData);
-          }
-        });
+        // Check if there's an action to perform
+        if (action && action.includes('|')) {
+          const [actionType, objectLocator] = action.split('|');
+          const valueToType = row[3]; // Assuming 'Value' is in the fourth column
 
-        // Perform actions if specified
-        if (action) {
-          const [actionType, locator] = action.split('|');
-          const valueToType = expectedValue;
-
+          // Ensure intercept is set before performing the action
+          cy.intercept('GET', '**/b/ss/**').as('requestAfterAction');
           if (actionType === 'click') {
-            cy.get(locator).should('be.visible').click().then(() => {
-              cy.log(`Clicked on element: ${locator}`);
-              cy.wait(1000);
-              cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
-                if (interception) {
-                  processInterceptedRequest(interception, row, requestData);
-                }
+            cy.get(objectLocator).should('exist')
+              .click({ force: true })
+              .then(() => {
+                cy.log(`Clicked on element: ${objectLocator}`);
+                cy.wait(1000); // Wait for any actions post-click
+
+                // Wait for the intercept and store the request data
+                cy.wait('@requestAfterAction', { timeout: 10000 }).then((interception) => {
+                  storeRequestData(interception, row, requestData, true); // Pass true to check 'ep.Action'
+                });
               });
-            });
           } else if (actionType === 'type') {
-            cy.get(locator).should('be.visible').type(valueToType).then(() => {
-              cy.log(`Typed "${valueToType}" into element: ${locator}`);
-              cy.wait(1000);
-              cy.wait('@specificRequest', { timeout: 10000 }).then((interception) => {
-                if (interception) {
-                  processInterceptedRequest(interception, row, requestData);
-                }
+            cy.get(objectLocator)
+              .should('be.visible')
+              .type(valueToType)
+              .then(() => {
+                cy.log(`Typed "${valueToType}" into element: ${objectLocator}`);
+
+                // Wait for the intercept and store the request data
+                cy.wait('@requestAfterAction', { timeout: 10000 }).then((interception) => {
+                  storeRequestData(interception, row, requestData, true); // Pass true to check 'ep.Action'
+                });
               });
-            });
           }
+        } else {
+          // If no action, intercept the request without checking 'ep.Action'
+          cy.intercept('GET', '**/b/ss/**').as('requestWithoutAction');
+          cy.wait('@requestWithoutAction', { timeout: 5000 }).then((interception) => {
+            storeRequestData(interception, row, requestData, false); // Pass false to skip 'ep.Action' check
+          });
         }
       });
     }).then(() => {
-      // Validate captured data and update Google Sheets
-      validateAndUpdateGoogleSheet(googleSheetData, requestData);
+      // Final assertions after all requests are captured
+      compareWithGoogleSheetData(googleSheetData, requestData);
+
+      // Update the Google Sheet and Database with the latest status data
+      cy.task('updateSheetAndDatabase') // Use the correct task to update both the Google Sheet and database
+        .then(result => {
+          cy.log(result);
+        });
     });
   });
 });
 
-// Helper function to process intercepted requests
-function processInterceptedRequest(interception, row, requestData) {
-  const url = interception.request.url;
-  const params = new URLSearchParams(url.split('?')[1]);
-  const extractedData = Object.fromEntries(params.entries());
+// Helper function to store intercepted request data
+function storeRequestData(interception, row, requestData, checkForEpAction = false) {
+  const interceptedUrl = interception.request.url;
+  const queryString = interceptedUrl.split('?')[1] || '';
+  const decodedQuery = decodeURIComponent(queryString);
+  const keyValuePairs = decodedQuery.split('&');
 
-  const requestId = `request_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-  requestData[requestId] = {
-    url,
-    params: extractedData,
-    timestamp: interception.timestamp,
-  };
+  const extractedData = {};
+  keyValuePairs.forEach((pair) => {
+    const [key, value] = pair.split('=');
+    extractedData[key] = value || '';
+  });
 
-  cy.log('Intercepted request data:', extractedData);
+  cy.log('Extracted Parameters: ' + JSON.stringify(extractedData));
+
+  // Only filter by 'ep.Action' if specified
+  if (checkForEpAction && 
+    (extractedData['en'] || extractedData['pev1'] || extractedData['pev2'])) {
+  // If any of 'en', 'pev1', or 'pev2' is present, capture the request
+  cy.log('Capturing this request as it contains one of the required parameters.');
+} else {
+  cy.log('Skipping this request, as it does not contain required parameters.');
+  return; // Skip requests that do not contain any of 'en', 'pev1', or 'pev2'
 }
 
-// Function to validate captured data and update Google Sheets
-function validateAndUpdateGoogleSheet(googleSheetData, requestData) {
-  googleSheetData.slice(1).forEach((row, rowIndex) => {
-    const actualRowIndex = rowIndex + 2; // Account for skipping the header row (starts from the second row)
-    const fieldName = row[2]; // Field name (Column C)
-    const expectedValue = row[3]; // Expected value (Column D)
-    let status = 'Fail';
+  const requestId = `request_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
-    // Check intercepted request data
-    Object.values(requestData).forEach((req) => {
-      const actualValue = req.params[fieldName]?.trim().toLowerCase() || '';
-      if (actualValue === expectedValue.trim().toLowerCase()) {
-        status = 'Pass';
+  requestData[requestId] = {
+    url: interceptedUrl,
+    status: interception.response.statusCode,
+    headers: interception.response.headers,
+    request_id: requestId,
+    timestamp: interception.timestamp,
+    params: extractedData,
+  };
+  console.log('Current requestData:', requestData);
+  return extractedData;
+}
+
+// Function to compare Google Sheets data with intercepted request data
+function compareWithGoogleSheetData(sheetData, requestData) {
+  sheetData.forEach((row, rowIndex) => {
+    if (rowIndex === 0) {
+      // Skip the header row
+      return;
+    }
+
+    const fieldName = row[2]; // Assuming 'Fieldname' is in the third column
+    const expectedValue = row[3]; // Assuming 'Value' is in the fourth column
+
+    let status = 'Fail'; // Default status
+    let actualValue = '';
+
+    // Iterate through intercepted request data
+    Object.values(requestData).forEach(req => {
+      if (req.params[fieldName]) {
+        actualValue = req.params[fieldName]?.trim().toLowerCase() || '';
+        const expectedValueTrimmed = expectedValue.trim().toLowerCase();
+
+        cy.log(`Field: ${fieldName}, Expected: "${expectedValueTrimmed}", Actual: "${actualValue}"`);
+
+        if (actualValue === expectedValueTrimmed) {
+          status = 'Pass';
+        }
       }
     });
 
-    // Update status in Google Sheets
-    const sheetRange = `Sheet2!F${actualRowIndex}`; // Update range for the status column
-    cy.task('writeGoogleSheet', { range: sheetRange, values: [[status]] }).then((result) => {
-      cy.log(`Updated row ${actualRowIndex} with status: ${status}`);
-    });
-  });
+    if (!actualValue) {
+      cy.log(`Warning: Field "${fieldName}" not found in any captured requests.`);
+    }
 
-  // Optional: Log captured data to a database
-  cy.task('updateDatabase', requestData).then((result) => {
-    cy.log('Database updated with captured request data:', result);
+    // Log status before updating
+    cy.log(`Field: ${fieldName}, Status: ${status}`);
+
+    // Update the status in the Google Sheet
+    const sheetRange = `Sheet2!F${rowIndex + 1}`; // Set the range for the status column update (column F)
+    try {
+      cy.task('writeGoogleSheet', { range: sheetRange, values: [[status]] })
+        .then(result => {
+          cy.log(`Update result for row ${rowIndex + 1}: ${result}`);
+        });
+    } catch (error) {
+      cy.log(`Failed to update status for row ${rowIndex + 1}: ${error.message}`);
+    }
   });
 }
