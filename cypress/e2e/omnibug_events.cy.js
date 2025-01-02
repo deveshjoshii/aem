@@ -51,19 +51,19 @@ describe('Intercept request, perform actions, and process values', () => {
 
       if (actionType === 'click') {
         cy.get(objectLocator).should('exist').click({ force: true });
-        cy.wait(1000)
+        cy.wait(1000);
         i += 2; // Move to the next action
       } else if (actionType === 'type') {
         cy.get(objectLocator).should('be.visible').type(value);
-        cy.wait(1000)
+        cy.wait(1000);
         i += 3; // Move to the next action
       } else if (actionType === 'select' || actionType === 'dropdown') {
         cy.get(objectLocator).should('exist').select(value); // Dropdown selection
-        cy.wait(1000)
+        cy.wait(1000);
         i += 3; // Move to the next action
       } else {
         cy.log(`Unsupported action type: ${actionType}`);
-        cy.wait(1000)
+        cy.wait(1000);
         i += 1; // Move to the next action (skip unknown action)
       }
     }
@@ -75,7 +75,6 @@ describe('Intercept request, perform actions, and process values', () => {
       return;
     }
 
-    // Track promises for row processing
     const rowProcessingPromises = [];
 
     cy.wrap(googleSheetData.slice(1)).each((row, index) => {
@@ -85,10 +84,8 @@ describe('Intercept request, perform actions, and process values', () => {
 
       cy.log(`Processing row ${index + 1}: URL = ${urlToVisit || 'No URL'}, Actions = ${actions || 'No Actions'}`);
 
-      // Create a promise for processing the current row
       const rowPromise = new Cypress.Promise((resolve) => {
-        let capturedRequests = 0;  // Reset capturedRequests for each row
-        const requestPromises = []; // Store promises for each request
+        let capturedRequests = 0;
 
         if (urlToVisit) {
           cy.visit(urlToVisit);
@@ -98,34 +95,28 @@ describe('Intercept request, perform actions, and process values', () => {
           performActions(actions);
         }
 
-        // Improved request handling
-        const waitForRequests = () => {
-          cy.wait('@getAnalyticsRequests', { timeout: 70000 }).then((interception) => {
-            storeRequestData(interception, row, requestData);
-            capturedRequests++;
-
-          cy.wait('@postAnalyticsRequests', { timeout: 70000 }).then((interception) => {
-            storeRequestData(interception, row, requestData);
-            capturedRequests++;
-
-            // Capture the promise for the current request
-            requestPromises.push(Promise.resolve());
-
-            if (capturedRequests < actionCount) {
-              waitForRequests(); // Recursively wait for remaining requests
-            } else {
-              // Only resolve when all requests are captured
-              Promise.all(requestPromises).then(() => {
-                resolve(); // Resolve once all requests are captured
-              });
-            }
-          });
-        };
-
         if (actionCount > 0) {
+          const waitForRequests = () => {
+            cy.wait('@getAnalyticsRequests', { timeout: 70000 }).then((interception) => {
+              storeRequestData(interception, row, requestData);
+              capturedRequests++;
+
+              cy.wait('@postAnalyticsRequests', { timeout: 70000 }).then((interception) => {
+                storeRequestData(interception, row, requestData);
+                capturedRequests++;
+
+                if (capturedRequests < actionCount) {
+                  waitForRequests();
+                } else {
+                  resolve();
+                }
+              });
+            });
+          };
+
           waitForRequests();
         } else {
-          resolve(); // Resolve immediately if no actions
+          resolve();
         }
       });
 
@@ -134,10 +125,8 @@ describe('Intercept request, perform actions, and process values', () => {
       Cypress.Promise.all(rowProcessingPromises).then(() => {
         cy.log('All rows processed and all requests captured. Proceeding to comparison.');
 
-        // Compare captured data
         compareWithGoogleSheetData(googleSheetData, requestData);
 
-        // Update Google Sheet and database
         cy.task('updateSheetAndDatabase').then((result) => {
           cy.log('Update result:', result);
         });
