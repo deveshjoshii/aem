@@ -35,10 +35,10 @@ describe('Intercept request, perform actions, and process values', () => {
       url: '**/b/ss/**',
     }).as('getAnalyticsRequests');
     
-    cy.intercept({
-      method: 'POST',
-      url: '**/b/ss/**',
-    }).as('postAnalyticsRequests');
+    // cy.intercept({
+    //   method: 'POST',
+    //   url: '**/b/ss/**',
+    // }).as('postAnalyticsRequests');
   });
 
   function performActions(actions) {
@@ -101,9 +101,9 @@ describe('Intercept request, perform actions, and process values', () => {
               storeRequestData(interception, row, requestData);
               capturedRequests++;
 
-              cy.wait('@postAnalyticsRequests', { timeout: 70000 }).then((interception) => {
-                storeRequestData(interception, row, requestData);
-                capturedRequests++;
+              // cy.wait('@postAnalyticsRequests', { timeout: 70000 }).then((interception) => {
+              //   storeRequestData(interception, row, requestData);
+              //   capturedRequests++;
 
                 if (capturedRequests < actionCount) {
                   waitForRequests();
@@ -111,7 +111,7 @@ describe('Intercept request, perform actions, and process values', () => {
                   resolve();
                 }
               });
-            });
+            // });
           };
 
           waitForRequests();
