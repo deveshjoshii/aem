@@ -54,7 +54,7 @@ async function readGoogleSheet() {
   const sheets = google.sheets({ version: 'v4', auth: authClient });
 
   const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ'; // Replace with your actual sheet ID
-  const sheetRange = 'Sheet1!A:F'; // Range in the sheet
+  const sheetRange = 'Sheet2!A:F'; // Range in the sheet
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
@@ -161,7 +161,7 @@ module.exports = defineConfig({
 
           // Step 3: Write updated data (including the status) back to Google Sheet
           const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ'; // Replace with your actual sheet ID
-          const range = 'Sheet1!A:F'; // Replace with the correct range
+          const range = 'Sheet2!A:F'; // Replace with the correct range
           await writeGoogleSheet({ spreadsheetId, range, values: sheetData });
 
           return 'Sheet and database updated successfully';
