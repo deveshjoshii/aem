@@ -4,35 +4,34 @@ const { Pool } = require('pg'); // PostgreSQL package
 const moment = require('moment-timezone'); // For handling timezones
 const fs = require('fs');
 
-// Load database configuration from dbdata.json
+// Load database credentials from the environment variable DB_CONNECTION_SECRET
 let dbConfig;
 try {
-  const dbConfigPath = './dbprodConfig.json';
-  if (!fs.existsSync(dbConfigPath)) {
-    throw new Error('dbprodConfig.json file is missing.');
+  const dbConfigString = process.env.DB_CONNECTION_SECRET;
+  if (!dbConfigString) {
+    throw new Error('DB_CONNECTION_SECRET is not set.');
   }
-  dbConfig = JSON.parse(fs.readFileSync(dbConfigPath, 'utf8'));
+  dbConfig = JSON.parse(dbConfigString);
 } catch (err) {
-  console.error('Error loading dbprodConfig.json:', err);
-  throw new Error('Unable to load database configuration from dbprodConfig.json.');
+  console.error('Error loading DB_CONNECTION_SECRET:', err);
+  throw new Error('Unable to load database configuration from the secret.');
 }
 
 // PostgreSQL connection configuration
 const pool = new Pool(dbConfig);
 
-// Load credentials from credentials.json
 async function authorize() {
-  const credentialsPath = 'cypress/fixtures/credentials.json';
+  const SERVICE_ACCOUNT_KEY_PATH = process.env.GOOGLE_CREDENTIALS_FILE_PATH;
 
-  if (!fs.existsSync(credentialsPath)) {
-    throw new Error('credentials.json file is missing.');
+  if (!SERVICE_ACCOUNT_KEY_PATH) {
+    throw new Error('GOOGLE_CREDENTIALS_FILE_PATH is not set.');
   }
 
   let credentials;
   try {
-    credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
+    credentials = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_KEY_PATH, 'utf8'));
   } catch (error) {
-    throw new Error('Failed to read or parse the credentials file: ' + error.message);
+    throw new Error('Failed to read or parse the service account key file: ' + error.message);
   }
 
   if (typeof credentials.private_key !== 'string' || typeof credentials.client_email !== 'string') {
@@ -90,6 +89,7 @@ async function writeGoogleSheet({ spreadsheetId, range, values }) {
 // Function to insert data into the PostgreSQL database
 async function insertDataIntoDatabase(sheetData) {
   try {
+    // Ensure the database table exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS analytics_data (
         id SERIAL PRIMARY KEY,
@@ -115,15 +115,19 @@ async function insertDataIntoDatabase(sheetData) {
       const fieldname = row[2];
       const value = row[3];
       const action = row[4];
-      let status = row[5];
+      let status = row[5]; // Get current status
       const createdAt = moment().tz('Asia/Kolkata').format('YYYY-MM-DD HH:mm:ss');
 
+      // Perform your action here (for example, change status based on some conditions)
       if (status === 'Pending') {
-        status = 'Completed';
+        status = 'Completed'; // Example action: change 'Pending' to 'Completed'
       }
 
+      // Insert into database
       await pool.query(insertQuery, [analyticId, url, fieldname, value, action, status, createdAt]);
-      row[5] = status;
+
+      // Update the status in the sheet as well
+      row[5] = status; // Update the row with new status
     }
 
     console.log('Data successfully inserted into the PostgreSQL database and sheet status updated');
@@ -136,24 +140,28 @@ async function insertDataIntoDatabase(sheetData) {
 
 module.exports = defineConfig({
   e2e: {
-    baseUrl: process.env.BASE_URL || 'https://aman:aman@chipadvisorreffered.smallbizvoices.com/', // Default fallback if not provided
+    baseUrl: process.env.BASE_URL || 'https://www.google.com/', // Default fallback if not provided
     setupNodeEvents(on, config) {
-      // implement node event listeners here
       on('task', {
         async readGoogleSheet() {
-          return await readGoogleSheet();
+          return await readGoogleSheet(); // Read sheet data
         },
 
         async writeGoogleSheet({ range, values }) {
-          const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ';
+          const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ'; // Replace with your actual sheet ID
           return await writeGoogleSheet({ spreadsheetId, range, values });
         },
 
         async updateSheetAndDatabase() {
+          // Step 1: Read data from Google Sheet
           const sheetData = await readGoogleSheet();
+
+          // Step 2: Insert data into database and update the status column
           await insertDataIntoDatabase(sheetData);
-          const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ';
-          const range = 'Sheet1!A:F';
+
+          // Step 3: Write updated data (including the status) back to Google Sheet
+          const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ'; // Replace with your actual sheet ID
+          const range = 'Sheet1!A:F'; // Replace with the correct range
           await writeGoogleSheet({ spreadsheetId, range, values: sheetData });
 
           return 'Sheet and database updated successfully';
