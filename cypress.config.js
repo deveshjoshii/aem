@@ -4,34 +4,35 @@ const { Pool } = require('pg'); // PostgreSQL package
 const moment = require('moment-timezone'); // For handling timezones
 const fs = require('fs');
 
-// Load database credentials from the environment variable DB_CONNECTION_SECRET
+// Load database configuration from dbdata.json
 let dbConfig;
 try {
-  const dbConfigString = process.env.DB_CONNECTION_SECRET;
-  if (!dbConfigString) {
-    throw new Error('DB_CONNECTION_SECRET is not set.');
+  const dbConfigPath = './dbprodConfig.json';
+  if (!fs.existsSync(dbConfigPath)) {
+    throw new Error('dbprodConfig.json file is missing.');
   }
-  dbConfig = JSON.parse(dbConfigString);
+  dbConfig = JSON.parse(fs.readFileSync(dbConfigPath, 'utf8'));
 } catch (err) {
-  console.error('Error loading DB_CONNECTION_SECRET:', err);
-  throw new Error('Unable to load database configuration from the secret.');
+  console.error('Error loading dbprodConfig.json:', err);
+  throw new Error('Unable to load database configuration from dbprodConfig.json.');
 }
 
 // PostgreSQL connection configuration
 const pool = new Pool(dbConfig);
 
+// Load credentials from credentials.json
 async function authorize() {
-  const SERVICE_ACCOUNT_KEY_PATH = process.env.GOOGLE_CREDENTIALS_FILE_PATH;
+  const credentialsPath = 'cypress/fixtures/credentials.json';
 
-  if (!SERVICE_ACCOUNT_KEY_PATH) {
-    throw new Error('GOOGLE_CREDENTIALS_FILE_PATH is not set.');
+  if (!fs.existsSync(credentialsPath)) {
+    throw new Error('credentials.json file is missing.');
   }
 
   let credentials;
   try {
-    credentials = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_KEY_PATH, 'utf8'));
+    credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
   } catch (error) {
-    throw new Error('Failed to read or parse the service account key file: ' + error.message);
+    throw new Error('Failed to read or parse the credentials file: ' + error.message);
   }
 
   if (typeof credentials.private_key !== 'string' || typeof credentials.client_email !== 'string') {
@@ -54,7 +55,7 @@ async function readGoogleSheet() {
   const sheets = google.sheets({ version: 'v4', auth: authClient });
 
   const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ'; // Replace with your actual sheet ID
-  const sheetRange = 'Sheet2!A:F'; // Range in the sheet
+  const sheetRange = 'Sheet1!A:F'; // Range in the sheet
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
@@ -89,9 +90,8 @@ async function writeGoogleSheet({ spreadsheetId, range, values }) {
 // Function to insert data into the PostgreSQL database
 async function insertDataIntoDatabase(sheetData) {
   try {
-    // Ensure the database table exists
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS adobe_analytics_data (
+      CREATE TABLE IF NOT EXISTS analytics_data (
         id SERIAL PRIMARY KEY,
         analytic_id VARCHAR(255) NOT NULL,
         url TEXT,
@@ -104,7 +104,7 @@ async function insertDataIntoDatabase(sheetData) {
     `);
 
     const insertQuery = `
-      INSERT INTO adobe_analytics_data (analytic_id, url, fieldname, value, action, status, created_at)
+      INSERT INTO analytics_data (analytic_id, url, fieldname, value, action, status, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
     `;
 
@@ -115,19 +115,15 @@ async function insertDataIntoDatabase(sheetData) {
       const fieldname = row[2];
       const value = row[3];
       const action = row[4];
-      let status = row[5]; // Get current status
+      let status = row[5];
       const createdAt = moment().tz('Asia/Kolkata').format('YYYY-MM-DD HH:mm:ss');
 
-      // Perform your action here (for example, change status based on some conditions)
       if (status === 'Pending') {
-        status = 'Completed'; // Example action: change 'Pending' to 'Completed'
+        status = 'Completed';
       }
 
-      // Insert into database
       await pool.query(insertQuery, [analyticId, url, fieldname, value, action, status, createdAt]);
-
-      // Update the status in the sheet as well
-      row[5] = status; // Update the row with new status
+      row[5] = status;
     }
 
     console.log('Data successfully inserted into the PostgreSQL database and sheet status updated');
@@ -140,41 +136,27 @@ async function insertDataIntoDatabase(sheetData) {
 
 module.exports = defineConfig({
   e2e: {
-    baseUrl: 'https://barclaycardus.com',
+    baseUrl: process.env.BASE_URL || 'https://aman:aman@chipadvisorreffered.smallbizvoices.com/', // Default fallback if not provided
     setupNodeEvents(on, config) {
+      // implement node event listeners here
       on('task', {
         async readGoogleSheet() {
-          return await readGoogleSheet(); // Read sheet data
+          return await readGoogleSheet();
         },
 
         async writeGoogleSheet({ range, values }) {
-          const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ'; // Replace with your actual sheet ID
+          const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ';
           return await writeGoogleSheet({ spreadsheetId, range, values });
         },
 
         async updateSheetAndDatabase() {
-          // Step 1: Read data from Google Sheet
           const sheetData = await readGoogleSheet();
-
-          // Step 2: Insert data into database and update the status column
           await insertDataIntoDatabase(sheetData);
-
-          // Step 3: Write updated data (including the status) back to Google Sheet
-          const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ'; // Replace with your actual sheet ID
-          const range = 'Sheet2!A:F'; // Replace with the correct range
+          const spreadsheetId = '1_dfBa_dLSQDm4QqHUMIvrN9adNL6ga-lUGp4xFDNaqQ';
+          const range = 'Sheet1!A:F';
           await writeGoogleSheet({ spreadsheetId, range, values: sheetData });
 
           return 'Sheet and database updated successfully';
-        },
-
-        async updateDatabase() {
-          // Step 1: Read data from Google Sheet
-          const sheetData = await readGoogleSheet();
-
-          // Step 2: Insert data into the database (no sheet updates here)
-          await insertDataIntoDatabase(sheetData);
-
-          return 'Database updated successfully';
         },
       });
     },
