@@ -91,7 +91,7 @@ async function insertDataIntoDatabase(sheetData) {
   try {
     // Ensure the database table exists
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS adobe_analytics_data (
+      CREATE TABLE IF NOT EXISTS analytics_data (
         id SERIAL PRIMARY KEY,
         analytic_id VARCHAR(255) NOT NULL,
         url TEXT,
@@ -104,7 +104,7 @@ async function insertDataIntoDatabase(sheetData) {
     `);
 
     const insertQuery = `
-      INSERT INTO adobe_analytics_data (analytic_id, url, fieldname, value, action, status, created_at)
+      INSERT INTO analytics_data (analytic_id, url, fieldname, value, action, status, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
     `;
 
@@ -140,7 +140,7 @@ async function insertDataIntoDatabase(sheetData) {
 
 module.exports = defineConfig({
   e2e: {
-    baseUrl: 'https://barclaycardus.com',
+    baseUrl: process.env.BASE_URL || 'https://www.google.com/', // Default fallback if not provided
     setupNodeEvents(on, config) {
       on('task', {
         async readGoogleSheet() {
@@ -165,16 +165,6 @@ module.exports = defineConfig({
           await writeGoogleSheet({ spreadsheetId, range, values: sheetData });
 
           return 'Sheet and database updated successfully';
-        },
-
-        async updateDatabase() {
-          // Step 1: Read data from Google Sheet
-          const sheetData = await readGoogleSheet();
-
-          // Step 2: Insert data into the database (no sheet updates here)
-          await insertDataIntoDatabase(sheetData);
-
-          return 'Database updated successfully';
         },
       });
     },
